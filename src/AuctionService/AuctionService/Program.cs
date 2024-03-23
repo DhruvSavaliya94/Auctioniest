@@ -1,5 +1,6 @@
 
 using AuctionService.Data;
+using AuctionService.RequestHelpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace AuctionService
@@ -16,6 +17,7 @@ namespace AuctionService
             {
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
             });
+            builder.Services.AddAutoMapper(typeof(MappingProfiles).Assembly);
 
             var app = builder.Build();
 
