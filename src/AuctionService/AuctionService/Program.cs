@@ -1,7 +1,10 @@
 
+using AuctionService.Consumers;
 using AuctionService.Data;
 using AuctionService.RequestHelpers;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
 
 namespace AuctionService
 {
@@ -18,6 +21,31 @@ namespace AuctionService
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
             });
             builder.Services.AddAutoMapper(typeof(MappingProfiles).Assembly);
+            builder.Services.AddMassTransit(x =>
+            {
+                x.AddEntityFrameworkOutbox<AuctionDbContext>(o =>
+                {
+                    o.QueryDelay = TimeSpan.FromMilliseconds(10);
+                    o.UsePostgres();
+                    o.UseBusOutbox();
+                });
+
+                x.AddConsumersFromNamespaceContaining<AuctionCreatedFaultConsumer>();
+
+                x.SetEndpointNameFormatter(new KebabCaseEndpointNameFormatter("auction", false));
+
+                x.UsingRabbitMq((context, cfg) =>
+                {
+                    cfg.Host("rabbitmq://localhost", h =>
+                    {
+                        h.Username("rabbitmq");
+                        h.Password("rabbitmqpw");
+                    });
+
+
+                    cfg.ConfigureEndpoints(context);
+                });
+            });
 
             var app = builder.Build();
 
