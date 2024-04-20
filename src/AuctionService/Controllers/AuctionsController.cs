@@ -39,7 +39,7 @@ namespace AuctionService.Controllers
             return Ok(_mapper.Map<List<AuctionDto>>(auctions));
         }
 
-        [HttpGet]
+        [HttpGet("{date}")]
         public async Task<ActionResult<List<AuctionDto>>> GetAllAuctionsAfterDate(string date)
         {
             var query = _content.Auctions

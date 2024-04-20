@@ -1,4 +1,4 @@
-
+using System;
 using AuctionService.Consumers;
 using AuctionService.Data;
 using AuctionService.RequestHelpers;
@@ -76,15 +76,7 @@ namespace AuctionService
                 Console.WriteLine(ex.Message);
             }
 
-            try
-            {
-                app.Run();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex);
-                Console.WriteLine(ex.Message);
-            }
+            app.Run();
 
         }
     }
