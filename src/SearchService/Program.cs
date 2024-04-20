@@ -23,11 +23,12 @@ namespace SearchService
             builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
             builder.Services.AddHttpClient<AuctionSvcHttpClient>()
                 .AddPolicyHandler(GetPolicy());
+
             builder.Services.AddMassTransit(x =>
             {
                 x.AddConsumersFromNamespaceContaining<AuctionCreatedConsumer>();
 
-                x.SetEndpointNameFormatter(new KebabCaseEndpointNameFormatter("search"));
+                x.SetEndpointNameFormatter(new KebabCaseEndpointNameFormatter("search", false));
 
                 x.UsingRabbitMq((context, cfg) =>
                 {

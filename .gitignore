@@ -362,5 +362,7 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 /docker-compose.yml
-/src/AuctionService/AuctionService/appsettings.Development.json
 /src/SearchService/appsettings.Development.json
+/src/AuctionService/appsettings.Development.json
+/src/GatewayService/appsettings.Development.json
+/src/IdentityService/appsettings.Development.json

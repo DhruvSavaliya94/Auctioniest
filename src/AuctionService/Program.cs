@@ -3,6 +3,7 @@ using AuctionService.Consumers;
 using AuctionService.Data;
 using AuctionService.RequestHelpers;
 using MassTransit;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 
@@ -21,11 +22,13 @@ namespace AuctionService
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
             });
             builder.Services.AddAutoMapper(typeof(MappingProfiles).Assembly);
+
             builder.Services.AddMassTransit(x =>
             {
                 x.AddEntityFrameworkOutbox<AuctionDbContext>(o =>
                 {
-                    o.QueryDelay = TimeSpan.FromMilliseconds(10);
+                    o.QueryDelay = TimeSpan.FromSeconds(10);
+
                     o.UsePostgres();
                     o.UseBusOutbox();
                 });
@@ -36,6 +39,7 @@ namespace AuctionService
 
                 x.UsingRabbitMq((context, cfg) =>
                 {
+                    // Specify the RabbitMQ host, username, and password
                     cfg.Host("rabbitmq://localhost", h =>
                     {
                         h.Username("rabbitmq");
@@ -47,11 +51,20 @@ namespace AuctionService
                 });
             });
 
+            builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+                .AddJwtBearer(options =>
+                {
+                    options.Authority = builder.Configuration["IdentityServiceUrl"];
+                    options.RequireHttpsMetadata = false;
+                    options.TokenValidationParameters.ValidateAudience = false;
+                    options.TokenValidationParameters.NameClaimType = "username";
+                });
+
             var app = builder.Build();
 
-
-            // Configure the HTTP request pipeline.
+            app.UseAuthentication();
             app.UseAuthorization();
+
             app.MapControllers();
 
             try
@@ -63,7 +76,16 @@ namespace AuctionService
                 Console.WriteLine(ex.Message);
             }
 
-            app.Run();
+            try
+            {
+                app.Run();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                Console.WriteLine(ex.Message);
+            }
+
         }
     }
 }
