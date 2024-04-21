@@ -33,10 +33,10 @@ namespace SearchService
                 x.UsingRabbitMq((context, cfg) =>
                 {
                     // Specify the RabbitMQ host, username, and password
-                    cfg.Host("rabbitmq://localhost", h =>
+                    cfg.Host(builder.Configuration["RabbitMq:Host"], "/", host =>
                     {
-                        h.Username("rabbitmq");
-                        h.Password("rabbitmqpw");
+                        host.Username(builder.Configuration.GetValue("RabbitMq:Username", "guest"));
+                        host.Password(builder.Configuration.GetValue("RabbitMq:Password", "guest"));
                     });
 
                     cfg.ReceiveEndpoint("search-auction-created", e =>

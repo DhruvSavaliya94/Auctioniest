@@ -16,7 +16,8 @@ namespace IdentityService.Pages.Diagnostics
 
         public async Task<IActionResult> OnGet()
         {
-            var localAddresses = new List<string?> { "127.0.0.1", "::1" };
+            Console.WriteLine($"Debug: {HttpContext.Connection.RemoteIpAddress?.ToString()}");
+            var localAddresses = new List<string> { "::ffff:172.20.0.1", "127.0.0.1", "::1", HttpContext.Connection.LocalIpAddress.ToString() };
             if (HttpContext.Connection.LocalIpAddress != null)
             {
                 localAddresses.Add(HttpContext.Connection.LocalIpAddress.ToString());

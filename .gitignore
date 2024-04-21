@@ -366,3 +366,4 @@ FodyWeavers.xsd
 /src/AuctionService/appsettings.Development.json
 /src/GatewayService/appsettings.Development.json
 /src/IdentityService/appsettings.Development.json
+/src/GatewayService/appsettings.Docker.json
