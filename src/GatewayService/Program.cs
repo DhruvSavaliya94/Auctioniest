@@ -21,10 +21,21 @@ namespace GatewayService
                     options.TokenValidationParameters.NameClaimType = "username";
                 });
 
+            builder.Services.AddCors(options =>
+            {
+                options.AddPolicy("customPolicy", b => 
+                {
+                    b.AllowAnyHeader().AllowCredentials().WithOrigins(builder.Configuration["ClientApp"]);
+                });
+            });
+
             var app = builder.Build();
 
+            app.UseCors();
+
             app.MapReverseProxy();
-            app.UseHttpsRedirection();
+
+            app.UseAuthentication();
             app.UseAuthorization();
 
             app.Run();
