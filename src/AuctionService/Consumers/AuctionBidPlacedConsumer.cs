@@ -16,7 +16,7 @@ namespace AuctionService.Consumers
         {
             Console.WriteLine($"Bid placed: {context.Message.Amount} by {context.Message.Bidder}");
 
-            var auction = await _dbContext.Auctions.FindAsync(context.Message.AuctionId);
+            var auction = await _dbContext.Auctions.FindAsync(Guid.Parse(context.Message.AuctionId));
 
             if (auction.CurrentHighestBid == null
                 || context.Message.BidStatus.Contains("Accepted")
