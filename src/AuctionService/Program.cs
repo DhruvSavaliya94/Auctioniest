@@ -7,80 +7,87 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 using AuctionService.Services;
+using Polly;
+using Npgsql;
 
-namespace AuctionService
+namespace AuctionService;
+
+public partial class Program
 {
-    public class Program
+    public static void Main(string[] args)
     {
-        public static void Main(string[] args)
+        var builder = WebApplication.CreateBuilder(args);
+
+        // Add services to the container.
+        builder.Services.AddControllers();
+        builder.Services.AddDbContext<AuctionDbContext>(options =>
         {
-            var builder = WebApplication.CreateBuilder(args);
+            options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+        });
+        builder.Services.AddAutoMapper(typeof(MappingProfiles).Assembly);
 
-            // Add services to the container.
-            builder.Services.AddControllers();
-            builder.Services.AddDbContext<AuctionDbContext>(options =>
+        builder.Services.AddMassTransit(x =>
+        {
+            x.AddEntityFrameworkOutbox<AuctionDbContext>(o =>
             {
-                options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
-            });
-            builder.Services.AddAutoMapper(typeof(MappingProfiles).Assembly);
+                o.QueryDelay = TimeSpan.FromSeconds(10);
 
-            builder.Services.AddMassTransit(x =>
-            {
-                x.AddEntityFrameworkOutbox<AuctionDbContext>(o =>
-                {
-                    o.QueryDelay = TimeSpan.FromSeconds(10);
-
-                    o.UsePostgres();
-                    o.UseBusOutbox();
-                });
-
-                x.AddConsumersFromNamespaceContaining<AuctionCreatedFaultConsumer>();
-
-                x.SetEndpointNameFormatter(new KebabCaseEndpointNameFormatter("auction", false));
-
-                x.UsingRabbitMq((context, cfg) =>
-                {
-                    // Specify the RabbitMQ host, username, and password
-                    cfg.Host(builder.Configuration["RabbitMq:Host"], "/", host =>
-                    {
-                        host.Username(builder.Configuration.GetValue("RabbitMq:Username", "guest"));
-                        host.Password(builder.Configuration.GetValue("RabbitMq:Password", "guest"));
-                    });
-
-                    cfg.ConfigureEndpoints(context);
-                });
+                o.UsePostgres();
+                o.UseBusOutbox();
             });
 
-            builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-                .AddJwtBearer(options =>
+            x.AddConsumersFromNamespaceContaining<AuctionCreatedFaultConsumer>();
+
+            x.SetEndpointNameFormatter(new KebabCaseEndpointNameFormatter("auction", false));
+
+            x.UsingRabbitMq((context, cfg) =>
+            {
+                cfg.UseMessageRetry(r =>
                 {
-                    options.Authority = builder.Configuration["IdentityServiceUrl"];
-                    options.RequireHttpsMetadata = false;
-                    options.TokenValidationParameters.ValidateAudience = false;
-                    options.TokenValidationParameters.NameClaimType = "username";
+                    r.Handle<RabbitMqConnectionException>();
+                    r.Interval(5, TimeSpan.FromSeconds(10));
                 });
 
-            builder.Services.AddGrpc();
+                // Specify the RabbitMQ host, username, and password
+                cfg.Host(builder.Configuration["RabbitMq:Host"], "/", host =>
+                {
+                    host.Username(builder.Configuration.GetValue("RabbitMq:Username", "guest"));
+                    host.Password(builder.Configuration.GetValue("RabbitMq:Password", "guest"));
+                });
 
-            var app = builder.Build();
+                cfg.ConfigureEndpoints(context);
+            });
+        });
 
-            app.UseAuthentication();
-            app.UseAuthorization();
-
-            app.MapControllers();
-            app.MapGrpcService<GrpcAuctionService>();
-
-            try
+        builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =>
             {
-                DbInitializer.Initialize(app);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.Message);
-            }
+                options.Authority = builder.Configuration["IdentityServiceUrl"];
+                options.RequireHttpsMetadata = false;
+                options.TokenValidationParameters.ValidateAudience = false;
+                options.TokenValidationParameters.NameClaimType = "username";
+            });
 
-            app.Run();
+        builder.Services.AddScoped<IAuctionRepository, AuctionRepository>();
 
-        }
+        builder.Services.AddGrpc();
+
+        var app = builder.Build();
+
+        app.UseAuthentication();
+        app.UseAuthorization();
+
+        app.MapControllers();
+        app.MapGrpcService<GrpcAuctionService>();
+
+        var retryPolicy = Policy.Handle<NpgsqlException>()
+            .WaitAndRetry(5, retryAttempt => TimeSpan.FromSeconds(10));
+
+        retryPolicy.ExecuteAndCapture(() => DbInitializer.Initialize(app));
+
+        app.Run();
+
     }
 }
+
+public partial class Program { }

@@ -32,6 +32,12 @@ namespace SearchService
 
                 x.UsingRabbitMq((context, cfg) =>
                 {
+                    cfg.UseMessageRetry(r =>
+                    {
+                        r.Handle<RabbitMqConnectionException>();
+                        r.Interval(5, TimeSpan.FromSeconds(10));
+                    });
+
                     // Specify the RabbitMQ host, username, and password
                     cfg.Host(builder.Configuration["RabbitMq:Host"], "/", host =>
                     {
@@ -59,14 +65,9 @@ namespace SearchService
 
             app.Lifetime.ApplicationStarted.Register(async () =>
             {
-                try
-                {
-                    await DbInitializer.Initialize(app);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(ex);
-                }
+                await Policy.Handle<TimeoutException>()
+                .WaitAndRetryAsync(5, retryAttempt => TimeSpan.FromSeconds(10))
+                .ExecuteAndCaptureAsync(async () => await DbInitializer.Initialize(app));
             });
 
             await app.RunAsync();

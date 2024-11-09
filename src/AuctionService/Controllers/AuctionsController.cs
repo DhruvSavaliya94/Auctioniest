@@ -2,140 +2,99 @@
 using AuctionService.DTOs;
 using AuctionService.Entities;
 using AutoMapper;
-using AutoMapper.QueryableExtensions;
 using Contracts;
 using MassTransit;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
-namespace AuctionService.Controllers
+namespace AuctionService.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class AuctionsController(IAuctionRepository repo, IMapper mapper, IPublishEndpoint publishEndpoint)
+    : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class AuctionsController : ControllerBase
+    [HttpGet]
+    public async Task<ActionResult<List<AuctionDto>>> GetAllAuctions(string? date)
     {
-        private readonly AuctionDbContext _content;
-        private readonly IMapper _mapper;
-        private readonly IPublishEndpoint _publishEndpoint;
+        return await repo.GetAuctionsAsync(date);
+    }
 
-        public AuctionsController(AuctionDbContext context, IMapper mapper, 
-            IPublishEndpoint publishEndpoint)
-        {
-            _content = context;
-            _mapper = mapper;
-            _publishEndpoint = publishEndpoint;
-        }
+    [HttpGet("{id}")]
+    public async Task<ActionResult<AuctionDto>> GetAuctionById(Guid id)
+    {
+        var auction = await repo.GetAuctionByIdAsync(id);
 
-        [HttpGet]
-        public async Task<ActionResult<List<AuctionDto>>> GetAllAuctions()
-        {
-            var auctions = await _content.Auctions
-                .Include(x => x.Item)
-                .OrderBy(x => x.Item.Make)
-                .ToListAsync();
+        if (auction == null) return NotFound();
 
-            return Ok(_mapper.Map<List<AuctionDto>>(auctions));
-        }
+        return auction;
+    }
 
-        [HttpGet("{date}")]
-        public async Task<ActionResult<List<AuctionDto>>> GetAllAuctionsAfterDate(string date)
-        {
-            var query = _content.Auctions
-                .OrderBy(x => x.Item.Make)
-                .AsQueryable();
+    [Authorize]
+    [HttpPost]
+    public async Task<ActionResult<AuctionDto>> CreateAuction(CreateAuctionDto createAuctionDto)
+    {
+        var auction = mapper.Map<Auction>(createAuctionDto);
 
-            if (!string.IsNullOrEmpty(date))
-            {
-                query = query.Where(x => x.UpdatedAt.CompareTo(DateTime.Parse(date)
-                    .ToUniversalTime()) > 0);
-            }
+        auction.Seller = User.Identity?.Name ?? "Unknown user";
 
-           return await query.ProjectTo<AuctionDto>(_mapper.ConfigurationProvider)
-                .ToListAsync();
-        }
+        repo.AddAuction(auction);
 
-        [HttpGet("{id}")]
-        public async Task<ActionResult<AuctionDto>> GetAuctionById(Guid id)
-        {
-            var auction = await _content.Auctions
-                .Include(x => x.Item)
-                .FirstOrDefaultAsync(x => x.Id == id);
+        var newAuction = mapper.Map<AuctionDto>(auction);
 
-            if (auction == null)
-            {
-                return NotFound();
-            }
+        await publishEndpoint.Publish(mapper.Map<AuctionCreated>(newAuction));
 
-            return Ok(_mapper.Map<AuctionDto>(auction));
-        }
+        var result = await repo.SaveChangesAsync();
 
-        [Authorize]
-        [HttpPost]
-        public async Task<ActionResult<AuctionDto>> CreateAuction(CreateAuctionDto createAuctionDto)
-        {
-            var auction = _mapper.Map<Auction>(createAuctionDto);
+        if (!result) return BadRequest("Could not save changes to DB");
 
-            auction.Seller = User.Identity.Name;
+        return CreatedAtAction(nameof(GetAuctionById),
+            new { Id = auction.Id }, newAuction);
+    }
 
-            _content.Auctions.Add(auction);
+    [Authorize]
+    [HttpPut("{id:guid}")]
+    public async Task<ActionResult> UpdateAuction(Guid id, UpdateAuctionDto updateAuctionDto)
+    {
+        var auction = await repo.GetAuctionEntityById(id);
 
-            var newAuction = _mapper.Map<AuctionDto>(auction);
+        if (auction == null) return NotFound();
 
-            await _publishEndpoint.Publish(_mapper.Map<AuctionCreated>(newAuction));
+        if (auction.Seller != User.Identity?.Name) return Forbid();
 
-            var result = await _content.SaveChangesAsync() > 0;
+        auction.Item.Make = updateAuctionDto.Make ?? auction.Item.Make;
+        auction.Item.Model = updateAuctionDto.Model ?? auction.Item.Model;
+        auction.Item.Color = updateAuctionDto.Color ?? auction.Item.Color;
+        auction.Item.Mileage = updateAuctionDto.Mileage ?? auction.Item.Mileage;
+        auction.Item.Year = updateAuctionDto.Year ?? auction.Item.Year;
 
-            if (!result) return BadRequest("Failed to create auction");
+        await publishEndpoint.Publish(mapper.Map<AuctionUpdated>(auction));
 
-            return CreatedAtAction(nameof(GetAuctionById), new { id = auction.Id }, _mapper.Map<AuctionDto>(auction));
-        }
+        var result = await repo.SaveChangesAsync();
 
-        [Authorize]
-        [HttpPut("{id}")]
-        public async Task<ActionResult> UpdateAuction(Guid id, UpdateAuctionDto updateAuctionDto)
-        {
-            var auction = await _content.Auctions
-                .Include(x => x.Item)
-                .FirstOrDefaultAsync(x => x.Id == id);
+        if (result) return Ok();
 
-            if (auction == null) return NotFound();
+        return BadRequest("Problem saving changes");
+    }
 
-            if (auction.Seller != User.Identity.Name) return Forbid();
+    [Authorize]
+    [HttpDelete("{id}")]
+    public async Task<ActionResult> DeleteAuction(Guid id)
+    {
+        var auction = await repo.GetAuctionEntityById(id);
 
-            auction.Item.Make = updateAuctionDto.Make ?? auction.Item.Make;
-            auction.Item.Model = updateAuctionDto.Model ?? auction.Item.Model;
-            auction.Item.Year = updateAuctionDto.Year ?? auction.Item.Year;
-            auction.Item.Color = updateAuctionDto.Color ?? auction.Item.Color;
-            auction.Item.Mileage = updateAuctionDto.Mileage ?? auction.Item.Mileage;
+        if (auction == null) return NotFound();
 
-            await _publishEndpoint.Publish(_mapper.Map<AuctionUpdated>(auction));
+        if (auction.Seller != User.Identity?.Name) return Forbid();
 
-            var result = await _content.SaveChangesAsync() > 0;
+        repo.RemoveAuction(auction);
 
-            if (!result) return BadRequest("Failed to update auction");
+        await publishEndpoint.Publish<AuctionDeleted>(new { Id = auction.Id.ToString() });
 
-            return Ok();
-        }
+        var result = await repo.SaveChangesAsync();
 
-        [Authorize]
-        [HttpDelete("{id}")]
-        public async Task<ActionResult> DeleteAuction(Guid id)
-        {
-            var auction = await _content.Auctions.FirstOrDefaultAsync(x => x.Id == id);
+        if (!result) return BadRequest("Could not update DB");
 
-            if (auction == null) return NotFound();
-
-            if (auction.Seller != User.Identity.Name) return Forbid();
-
-            _content.Auctions.Remove(auction);
-            
-            var result = await _content.SaveChangesAsync() > 0;
-
-            if (!result) return BadRequest("Failed to delete auction");
-            
-            return NoContent();
-        }
+        return Ok();
     }
 }

@@ -4,6 +4,7 @@ using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using MongoDB.Driver;
 using MongoDB.Entities;
+using Polly;
 
 namespace BiddingService
 {
@@ -25,6 +26,12 @@ namespace BiddingService
 
                 x.UsingRabbitMq((context, cfg) =>
                 {
+                    cfg.UseMessageRetry(r =>
+                    {
+                        r.Handle<RabbitMqConnectionException>();
+                        r.Interval(5, TimeSpan.FromSeconds(10));
+                    });
+
                     // Specify the RabbitMQ host, username, and password
                     cfg.Host(builder.Configuration["RabbitMq:Host"], "/", host =>
                     {
@@ -56,8 +63,12 @@ namespace BiddingService
             app.UseAuthorization();
             app.MapControllers();
 
-            await DB.InitAsync("BidDb", MongoClientSettings
-                .FromConnectionString(builder.Configuration.GetConnectionString("BidDbConnection")));
+            await Policy.Handle<TimeoutException>()
+                .WaitAndRetryAsync(5, retryAttempt => TimeSpan.FromSeconds(10))
+                .ExecuteAndCaptureAsync(async () => {
+                    await DB.InitAsync("BidDb", MongoClientSettings
+                    .FromConnectionString(builder.Configuration.GetConnectionString("BidDbConnection")));
+                });
 
             app.Run();
         }

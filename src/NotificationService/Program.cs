@@ -18,6 +18,12 @@ namespace NotificationService
 
                 x.UsingRabbitMq((context, cfg) =>
                 {
+                    cfg.UseMessageRetry(r =>
+                    {
+                        r.Handle<RabbitMqConnectionException>();
+                        r.Interval(5, TimeSpan.FromSeconds(10));
+                    });
+
                     // Specify the RabbitMQ host, username, and password
                     cfg.Host(builder.Configuration["RabbitMq:Host"], "/", host =>
                     {
